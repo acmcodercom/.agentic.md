@@ -1,0 +1,160 @@
+name: PR AI Level & Review Check
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  check-ai-level:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse PR Body and Apply Labels
+        id: parse_pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || "";
+            let aiLevel = null;
+            let isAIReviewed = false;
+            let isHumanReviewed = false;
+
+            // 1. Extract ALL checked AI levels and take the highest
+            const levelMatches = body.matchAll(/-\s*\[x\]\s*(L[1-5])/gi);
+            let maxLevel = 0;
+            for (const match of levelMatches) {
+              const level = parseInt(match[1].substring(1));
+              if (level > maxLevel) maxLevel = level;
+            }
+            if (maxLevel > 0) aiLevel = `L${maxLevel}`;
+
+            // 2. Check if "No AI Used" is selected
+            if (/-\s*\[x\]\s*No\s+AI\s+Used/i.test(body)) {
+              aiLevel = "None";
+            }
+
+            // 3. Check review statuses by finding the specific lines
+            const lines = body.split('\n');
+            for (const line of lines) {
+              // Strictly match: "- [x] I have performed a human review of all this code."
+              if (/I\s+have\s+performed\s+a\s+human\s+review\s+of\s+all\s+this\s+code/i.test(line) && /-\s*\[x\]/i.test(line)) {
+                isHumanReviewed = true;
+              }
+              // Strictly match: "- [x] The code has been reviewed by AI."
+              if (/The\s+code\s+has\s+been\s+reviewed\s+by\s+AI/i.test(line) && /-\s*\[x\]/i.test(line)) {
+                isAIReviewed = true;
+              }
+            }
+
+            // 4. Automatically apply labels based on the extracted AI level
+            const labelsToAdd = [];
+            if (aiLevel) {
+              labelsToAdd.push(`AI: ${aiLevel}`);
+            }
+            
+            if (labelsToAdd.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: labelsToAdd
+              });
+              core.info(`✅ Successfully applied labels: ${labelsToAdd.join(', ')}`);
+            } else {
+              core.warning('⚠️ No AI level checkbox found in PR description.');
+            }
+
+            // 5. Pass variables to the next steps
+            core.setOutput('ai_level', aiLevel);
+            core.setOutput('is_ai_reviewed', isAIReviewed);
+            core.setOutput('is_human_reviewed', isHumanReviewed);
+
+      - name: Validate Review Declarations
+        run: |
+          IS_AI_REVIEWED="${{ steps.parse_pr.outputs.is_ai_reviewed }}"
+          IS_HUMAN_REVIEWED="${{ steps.parse_pr.outputs.is_human_reviewed }}"
+
+          echo "Is AI Reviewed: $IS_AI_REVIEWED"
+          echo "Is Human Reviewed: $IS_HUMAN_REVIEWED"
+
+          # Fail if NEITHER AI review NOR human review is checked
+          if [[ "$IS_AI_REVIEWED" != "true" ]] && [[ "$IS_HUMAN_REVIEWED" != "true" ]]; then
+            echo "❌ ERROR: You must select at least one review declaration!"
+            echo "Please check either 'AI has performed a self-review' or 'I have performed a human review'."
+            exit 1
+          fi
+
+          echo "✅ Review declaration validation passed."
+
+      - name: Block PR if L3-L5 lacks Human Review
+        run: |
+          AI_LEVEL="${{ steps.parse_pr.outputs.ai_level }}"
+          IS_HUMAN_REVIEWED="${{ steps.parse_pr.outputs.is_human_reviewed }}"
+
+          echo "Detected AI Level: $AI_LEVEL"
+          echo "Is Human Reviewed: $IS_HUMAN_REVIEWED"
+
+          # Block the PR if it is L3/L4/L5 AND human review is NOT checked
+          if [[ "$AI_LEVEL" == "L3" || "$AI_LEVEL" == "L4" || "$AI_LEVEL" == "L5" ]] && [[ "$IS_HUMAN_REVIEWED" != "true" ]]; then
+            echo "❌ ERROR: L3/L4/L5 code requires a mandatory human review. Please check the 'I have performed a human review' box!"
+            exit 1
+          fi
+
+          echo "✅ PR check passed."
+
+      - name: Verify Commit Trailers for L3-L5 Human Review
+        if: steps.parse_pr.outputs.ai_level == 'L3' || steps.parse_pr.outputs.ai_level == 'L4' || steps.parse_pr.outputs.ai_level == 'L5'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const isHumanReviewed = '${{ steps.parse_pr.outputs.is_human_reviewed }}' === 'true';
+            
+            // Only enforce this check if human review is claimed for L3-L5
+            if (!isHumanReviewed) {
+              core.info('⏭️ Skipping commit trailer check: Human review was not checked for this L3-L5 PR.');
+              return;
+            }
+
+            core.info('🔍 Fetching commits to verify required trailers...');
+            
+            // Fetch all commits in the PR
+            const commits = await github.paginate(github.rest.pulls.listCommits, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            const requiredTrailers = [
+              'Co-authored-by: Claude <noreply@anthropic.com>',
+              'Reviewed-by: lifubang <lifubang@acmcoder.com>',
+              'Signed-off-by: lifubang <lifubang@acmcoder.com>'
+            ];
+
+            const invalidCommits = [];
+
+            for (const commit of commits) {
+              const message = commit.commit.message;
+              const missingTrailers = requiredTrailers.filter(trailer => !message.includes(trailer));
+              
+              if (missingTrailers.length > 0) {
+                invalidCommits.push({
+                  sha: commit.sha.substring(0, 7),
+                  missing: missingTrailers
+                });
+              }
+            }
+
+            // Fail the workflow if any commit is missing the required trailers
+            if (invalidCommits.length > 0) {
+              let errorMsg = '❌ ERROR: The following commits are missing required trailers for L3-L5 Human Review:\n\n';
+              for (const c of invalidCommits) {
+                errorMsg += `- Commit \`${c.sha}\` is missing:\n`;
+                c.missing.forEach(m => errorMsg += `  - ${m}\n`);
+              }
+              core.setFailed(errorMsg);
+            } else {
+              core.info('✅ All commits contain the required Co-authored-by, Reviewed-by, and Signed-off-by trailers.');
+            }
