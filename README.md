@@ -5,6 +5,8 @@ We think that every open-source project needs a clear agent policy, and these po
 
 You can refer `.agentic.md` in `AGENTS.md` or `CONTRIBUTING.md`.
 
+You can also add a [PR template](./.github/PULL_REQUEST_TEMPLATE.md) and a [Github action](./.github/workflows/pr-ai-check.yml) to check these rules.
+
 # A suggested document
 [.agentic.md](./.agentic.md)
 ```md
@@ -26,7 +28,7 @@ You can refer `.agentic.md` in `AGENTS.md` or `CONTRIBUTING.md`.
 
 # Definition of AI Usage Levels
   ## L1
-  AI Assisstant: The developer uses an AI tool (e.g., chat-based assistants like Qwen, ChatGPT) to answer questions, explain concepts, suggest debugging strategies, or provide small code snippets during interactive development. The human remains fully in control of design, logic, and implementation.
+  AI Assistant: The developer uses an AI tool (e.g., chat-based assistants like Qwen, ChatGPT) to answer questions, explain concepts, suggest debugging strategies, or provide small code snippets during interactive development. The human remains fully in control of design, logic, and implementation.
   ## L2
   AI Copilot: The developer uses real-time AI pair programming tools (e.g., GitHub Copilot, CodeWhisperer) that suggest lines or blocks of code as they type. These suggestions are actively reviewed, edited, and accepted by the developer in real time within their IDE.
   ## L3
