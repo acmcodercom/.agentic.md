@@ -7,6 +7,10 @@ You can refer `.agentic.md` in `AGENTS.md` or `CONTRIBUTING.md`.
 
 You can also add a [PR template](./.github/PULL_REQUEST_TEMPLATE.md) and a [Github action](./.github/workflows/pr-ai-check.yml) to check these rules.
 
+# Distinction Between AGENTS.md and .agentic.md
+- `AGENTS.md`: Designed specifically for AI agents.
+- `.agentic.md`: Designed specifically for human developers.
+
 # A suggested document
 [.agentic.md](./.agentic.md)
 ```md

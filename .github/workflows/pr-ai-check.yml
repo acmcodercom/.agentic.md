@@ -128,9 +128,9 @@ jobs:
             });
 
             const requiredTrailers = [
-              'Co-authored-by: Claude <noreply@anthropic.com>',
-              'Reviewed-by: lifubang <lifubang@acmcoder.com>',
-              'Signed-off-by: lifubang <lifubang@acmcoder.com>'
+              'Co-authored-by: ',
+              'Reviewed-by: ',
+              'Signed-off-by: '
             ];
 
             const invalidCommits = [];
